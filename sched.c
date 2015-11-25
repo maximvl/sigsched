@@ -2,11 +2,14 @@
 #include <ucontext.h>
 #include <unistd.h>
 #include <errno.h>
+#include <string.h>
 
 #include <math.h>
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#include <sys/queue.h>
 
 static int pid_counter = 0;
 
@@ -17,6 +20,12 @@ int next_pid() {
 typedef void (*process_fun)();
 typedef enum { NEW, SUSPENDED, DEAD } process_state;
 
+typedef struct message_s {
+  void *data;
+  int   size;
+  TAILQ_ENTRY(message_s) next;
+} message;
+
 typedef struct {
   int pid;
   process_state state;
@@ -24,6 +33,7 @@ typedef struct {
   ucontext_t context;
   char* stack;
   int stack_size;
+  TAILQ_HEAD(,message_s) mailbox;
 } process;
 
 #define MAX_PROCS 10
@@ -46,6 +56,8 @@ process* make_process(process_fun init) {
   p->init = init;
   p->stack_size = STACK_SIZE;
   p->stack = (char*)malloc(STACK_SIZE);
+
+  TAILQ_INIT(&p->mailbox);
 
   /* fill context */
   if(getcontext(&p->context) == -1) {
@@ -80,6 +92,25 @@ int current_process_id() {
   }
   printf("no process found!!\n");
   return -1;
+}
+
+process* get_current_process() {
+  int i = current_process_id();
+  if(i < 0) {
+    return NULL;
+  }
+  return processes[i];
+}
+
+process* get_process(int pid) {
+  int i;
+  for(i = 0; i < cur_procs; i++) {
+    if(processes[i]->pid == pid) {
+      return processes[i];
+    }
+  }
+  printf("no process found!!\n");
+  return NULL;
 }
 
 void delay_signal(int sig, int nsec) {};
@@ -128,7 +159,7 @@ void init_scheduler_context() {
   reinit_scheduler_context();
 }
 
-void usr2_handler(int sig, siginfo_t *info, void *ctx) {
+void enter_scheduler() {
   /* printf("got signal\n"); */
   reinit_scheduler_context();
   /* printf("switching to scheduler\n"); */
@@ -138,20 +169,53 @@ void usr2_handler(int sig, siginfo_t *info, void *ctx) {
   }
 }
 
+void usr2_handler(int sig, siginfo_t *info, void *ctx) {
+  enter_scheduler();
+}
+
+void send(int pid, void *msg, int msgsz) {
+  process *dest = get_process(pid);
+  message *m = malloc(sizeof(message));
+  m->data = malloc(msgsz);
+  m->size = msgsz;
+  memcpy(m->data, msg, msgsz);
+  TAILQ_INSERT_TAIL(&dest->mailbox, m, next);
+}
+
+void receive(void **msg, int *msgsz) {
+  process *self = get_current_process();
+  message *head;
+  while((head = TAILQ_FIRST(&self->mailbox)) == NULL) {
+    enter_scheduler();
+  }
+  *msg = head->data;
+  *msgsz = head->size;
+  TAILQ_REMOVE(&self->mailbox, head, next);
+  free(head);
+}
+
 void fun1() {
+  char *str = "Hello, world!";
   printf("fun1 start\n");
   while(1) {
     sleep(1);
     printf("fun1 execution\n");
+    send(1, (void*)str, strlen(str) + 1);
     sleep(1);
   }
 }
 
 void fun2() {
+  char *data = NULL;
+  int   size;
   printf("fun2 start\n");
   while(1) {
     sleep(1);
     printf("fun2 execution\n");
+    receive((void**)&data, &size);
+    printf("fun2 got: %s (%d)\n", data, size);
+    free(data);
+    data = NULL;
     sleep(1);
   }
 }
