@@ -9,7 +9,7 @@ Unix singal-based native code scheduler
   * Implement dynamic process spawn
   * Implement own sleep function
   * Implement repl for introspection
-  * Replace all existing scheduler implementations and get job invite from Google
+  * Replace all existing scheduler implementations and get job offer from Google
 
 # docs to read:
 
