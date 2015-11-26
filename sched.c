@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <sys/time.h>
+
 static int pid_counter = 0;
 
 int next_pid() {
@@ -31,9 +33,8 @@ int cur_procs = 0;
 static process *processes[MAX_PROCS];
 static process *current_process = 0;
 
-const int STACK_SIZE = 16384;
+const int STACK_SIZE = 65535;
 
-static ucontext_t new_context;
 static char *scheduler_stack;
 static ucontext_t scheduler_context;
 static ucontext_t on_process_end;
@@ -49,8 +50,7 @@ process* make_process(process_fun init) {
 
   /* fill context */
   if(getcontext(&p->context) == -1) {
-    printf("cant get context!!\n");
-    exit(errno);
+    perror("make process - get context");
   }
   p->context.uc_stack.ss_sp = p->stack;
   p->context.uc_stack.ss_size = p->stack_size;
@@ -82,13 +82,20 @@ int current_process_id() {
   return -1;
 }
 
-void delay_signal(int sig, int nsec) {};
+static struct itimerval scheduler_timer;
+
+void set_timer(int usec) {
+  scheduler_timer.it_value.tv_usec = usec;
+  if(setitimer(ITIMER_REAL, &scheduler_timer, NULL) == -1) {
+    perror("set timer - setitimer");
+  }
+}
 
 void scheduler() {
   printf(">> entering scheduler\n");
   int process_id;
   if(current_process) {
-    current_process->context = new_context;
+    /* current_process->context = new_context; */
     process_id = random_(cur_procs-1);
     int curr_id = current_process_id();
     if(process_id >= curr_id) {
@@ -101,9 +108,9 @@ void scheduler() {
   current_process = processes[process_id];
   if(current_process->state != DEAD) {
     printf(">> switching to pid: %d\n", current_process->pid);
+    set_timer(1000);
     if(setcontext(&current_process->context) == -1) {
-      printf("scheduler swap context failed!!");
-      exit(errno);
+      perror("scheduler - setcontext");
     }
   }
   printf("scheduler exit!!\n");
@@ -112,14 +119,14 @@ void scheduler() {
 
 void reinit_scheduler_context() {
   if(getcontext(&scheduler_context) == -1) {
-    printf("scheduler context fail!!\n");
-    exit(errno);
+    printf("reinit_scheduler_context - getcontext");
   }
   scheduler_context.uc_stack.ss_sp = scheduler_stack;
   scheduler_context.uc_stack.ss_size = STACK_SIZE;
   scheduler_context.uc_stack.ss_flags = 0;
   scheduler_context.uc_link = NULL;
   sigemptyset(&scheduler_context.uc_sigmask);
+  sigaddset(&scheduler_context.uc_sigmask, SIGALRM);
   makecontext(&scheduler_context, scheduler, 0);
 }
 
@@ -128,40 +135,36 @@ void init_scheduler_context() {
   reinit_scheduler_context();
 }
 
-void usr2_handler(int sig, siginfo_t *info, void *ctx) {
+void sigalrm_handler(int sig, siginfo_t *info, void *ctx) {
   /* printf("got signal\n"); */
   reinit_scheduler_context();
   /* printf("switching to scheduler\n"); */
-  if(swapcontext(&new_context, &scheduler_context) == -1) {
-    printf("failed to switch to scheduler!!\n");
-    exit(errno);
+  if(swapcontext(&current_process->context, &scheduler_context) == -1) {
+    perror("sigalrm_handler - swapcontext");
+  }
+}
+
+void fun0() {
+  printf("fun0 start\n");
+  while(1) {
+    usleep(100);
+    printf("fun0 execution\n");
   }
 }
 
 void fun1() {
   printf("fun1 start\n");
   while(1) {
-    sleep(1);
+    usleep(100);
     printf("fun1 execution\n");
-    sleep(1);
   }
 }
 
 void fun2() {
   printf("fun2 start\n");
   while(1) {
-    sleep(1);
+    usleep(100);
     printf("fun2 execution\n");
-    sleep(1);
-  }
-}
-
-void fun3() {
-  printf("fun3 start\n");
-  while(1) {
-    sleep(1);
-    printf("fun3 execution\n");
-    sleep(1);
   }
 }
 
@@ -169,33 +172,29 @@ static ucontext_t main_context;
 
 int main(int argc, char* argv[]) {
   struct sigaction action;
-  action.sa_sigaction = usr2_handler;
-  action.sa_flags = SA_SIGINFO;
+  action.sa_sigaction = sigalrm_handler;
+  action.sa_flags = SA_RESTART | SA_SIGINFO;
   sigemptyset(&action.sa_mask);
     
-  if(sigaction(SIGUSR2, &action, NULL) == -1) {
-    printf("can't set usr2 singal handler\n");
+  if(sigaction(SIGALRM, &action, NULL) == -1) {
+    perror("main - sigaction");
     return errno;
   }
 
-  processes[0] = make_process(fun1);
-  processes[1] = make_process(fun2);
-  processes[2] = make_process(fun3);
+  processes[0] = make_process(fun0);
+  processes[1] = make_process(fun1);
+  processes[2] = make_process(fun2);
 
   init_scheduler_context();
   srand(time(NULL));
 
-  if(fork()) {
-    if(swapcontext(&main_context, &scheduler_context) == -1)  {
-      printf("swap scheduler context failed!!\n");
-      exit(errno);
-    }
-  } else {
-    int ppid = getppid();
-    while(1) {
-      usleep(10000);
-      kill(ppid, SIGUSR2);
-    }
+  scheduler_timer.it_value.tv_sec = 0;
+  scheduler_timer.it_interval.tv_sec = 0;
+  scheduler_timer.it_interval.tv_usec = 0;
+
+  if(swapcontext(&main_context, &scheduler_context) == -1)  {
+    perror("main - swapcontext");
+    exit(errno);
   }
   return 0;
 }
