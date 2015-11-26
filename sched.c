@@ -166,23 +166,19 @@ void init_scheduler_context() {
   reinit_scheduler_context();
 }
 
-void sigalrm_handler(int sig, siginfo_t *info, void *ctx) {
-  enter_scheduler();
-}
-  
 void enter_scheduler() {
   /* printf("got signal\n"); */
   reinit_scheduler_context();
   /* printf("switching to scheduler\n"); */
   if(swapcontext(&current_process->context, &scheduler_context) == -1) {
-    perror("sigalrm_handler - swapcontext");
+    perror("enter_scheduler - swapcontext");
   }
 }
 
-void usr2_handler(int sig, siginfo_t *info, void *ctx) {
+void sigalrm_handler(int sig, siginfo_t *info, void *ctx) {
   enter_scheduler();
 }
-
+  
 void send(int pid, void *msg, int msgsz) {
   process *dest = get_process(pid);
   message *m = malloc(sizeof(message));
@@ -204,7 +200,7 @@ void receive(void **msg, int *msgsz) {
   free(head);
 }
 
-void self() {
+int self() {
   return current_process->pid;
 }
 
@@ -212,7 +208,7 @@ void fun1() {
   char *str = "Hello, world!";
   printf("process %d start\n", self());
   while(1) {
-    usleep(100);
+    usleep(1000);
     printf("process %d execution\n", self());
     send(1, (void*)str, strlen(str) + 1);
   }
