@@ -3,13 +3,13 @@ Unix singal-based native code scheduler
 
 # TODO
 
-  * Fix all valgrind complains
-  * Block context switch in critical sections, like scheduler
-  * Rewrite signal handling to controllable timer - SIGALRM, SIGVTALRM and SIGPROF
-  * Implement dynamic process spawn
-  * Implement own sleep function
-  * Implement repl for introspection
-  * Replace all existing scheduler implementations and get job offer from Google
+  - [ ] Fix all valgrind complains
+  - [x] Block context switch in critical sections, like scheduler
+  - [x] Rewrite signal handling to controllable timer - SIGALRM, SIGVTALRM and SIGPROF
+  - [ ] Implement dynamic process spawn
+  - [ ] Implement own sleep function
+  - [ ] Implement repl for introspection
+  - [ ] Replace all existing scheduler implementations and get job offer from Google
 
 # docs to read:
 
@@ -22,4 +22,3 @@ Unix singal-based native code scheduler
   * man 3 getcontext, makecontext, setcontext, swapcontext
   * http://cs2007.googlecode.com/svn/nreduce_full/examples/userthreads/userthreads.c
   * http://stackoverflow.com/questions/9145321/implementing-a-user-level-threads-package
-
