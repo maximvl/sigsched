@@ -1,4 +1,4 @@
-CFLAGS=-Wall -g
+CFLAGS=-I/usr/include/valgrind -Wall -g -static
 LDLIBS=-lm
 
 all: sched
